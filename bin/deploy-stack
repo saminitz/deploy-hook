@@ -1,0 +1,43 @@
+#!/bin/sh
+# deploy-stack <stack dir> <id>
+#
+# Run by webhook for each authorised POST. Updates the compose stack in
+# <stack dir> to its newest images:
+#   .deploy/pre-deploy.sh (if present), pull, up -d --wait,
+#   .deploy/post-deploy.sh (if present), image prune (DEPLOY_PRUNE=false: no).
+# Output and exit code become the HTTP response (200 or 500); any failed step
+# stops the deploy.
+set -eu
+
+STACK_DIR=${1:?stack dir}
+DEPLOY_ID=${2:?id}
+export STACK_DIR DEPLOY_ID
+
+# One deploy per stack at a time; a second request waits, then pulls what is
+# newest by then.
+exec 9> "/tmp/deploy-$DEPLOY_ID.lock"
+flock 9
+
+cd "$STACK_DIR"
+
+if [ -f .deploy/pre-deploy.sh ]; then
+  echo '== pre-deploy'
+  sh .deploy/pre-deploy.sh
+fi
+
+echo '== pull'
+docker compose pull --quiet --ignore-buildable
+
+echo '== up'
+docker compose up -d --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}"
+
+if [ -f .deploy/post-deploy.sh ]; then
+  echo '== post-deploy'
+  sh .deploy/post-deploy.sh
+fi
+
+if [ "${DEPLOY_PRUNE:-true}" != false ]; then
+  echo '== prune'
+  docker image prune -f > /dev/null
+fi
+docker compose ps --format 'table {{.Service}}\t{{.Status}}'

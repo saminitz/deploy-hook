@@ -1,0 +1,95 @@
+#!/bin/sh
+# deploy-hook [serve|reload]
+#
+# serve (default): writes the hooks file, then runs webhook in the foreground.
+# reload: rewrites the hooks file and tells the running webhook to reload it.
+#
+# Every <STACKS_DIR>/<stack>/.deploy/token becomes the hook /hooks/<id>, where
+# <id> is the folder name in lowercase with dashes (or .deploy/id). A POST
+# with the header X-Deploy-Token: <token> runs deploy-stack in that folder.
+set -eu
+
+: "${STACKS_DIR:?STACKS_DIR must name the folder that holds the stacks}"
+HOOKS_FILE=${HOOKS_FILE:-/tmp/hooks.json}
+PORT=${PORT:-9000}
+
+warn() { echo "deploy-hook: $*" >&2; }
+
+# "MAPS - Media Server" -> "maps-media-server". ASCII on purpose: ids are
+# URL paths.
+# shellcheck disable=SC2018,SC2019
+slug() {
+  printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | sed 's/^-*//; s/-*$//'
+}
+
+# Prints one JSON hook per line for every stack with a usable token.
+hooks() {
+  seen=' '
+  for token_file in "$STACKS_DIR"/*/.deploy/token; do
+    [ -f "$token_file" ] || continue
+    dir=${token_file%/.deploy/token}
+    if [ -f "$dir/.deploy/id" ]; then
+      id=$(tr -d ' \t\r\n' < "$dir/.deploy/id")
+    else
+      id=$(slug "${dir##*/}")
+    fi
+    if ! printf '%s' "$id" | grep -Eqx '[a-z0-9][a-z0-9-]*'; then
+      warn "skipping $dir: id '$id' must be lowercase letters, digits and dashes"
+      continue
+    fi
+    case $seen in *" $id "*)
+      warn "skipping $dir: id '$id' is already taken"
+      continue
+    esac
+    token=$(tr -d ' \t\r\n' < "$token_file")
+    if ! printf '%s' "$token" | grep -Eqx '[A-Za-z0-9_-]{32,}'; then
+      warn "skipping $dir: token needs 32+ characters of A-Z a-z 0-9 _ -"
+      continue
+    fi
+    seen="$seen$id "
+    echo "deploy-hook: /hooks/$id -> $dir" >&2
+    jq -nc --arg id "$id" --arg dir "$dir" --arg token "$token" '{
+      id: $id,
+      "execute-command": "/usr/local/bin/deploy-stack",
+      "pass-arguments-to-command": [
+        {source: "string", name: $dir},
+        {source: "string", name: $id}
+      ],
+      "command-working-directory": $dir,
+      "http-methods": ["POST"],
+      "include-command-output-in-response": true,
+      "include-command-output-in-response-on-error": true,
+      "trigger-rule-mismatch-http-response-code": 401,
+      "trigger-rule": {match: {
+        type: "value", value: $token,
+        parameter: {source: "header", name: "X-Deploy-Token"}
+      }}
+    }'
+  done
+}
+
+# Writes the hooks file atomically; on failure the old one stays in place.
+write_hooks() {
+  tmp=$HOOKS_FILE.new
+  hooks | jq -s . > "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$HOOKS_FILE"
+  [ "$(jq length "$HOOKS_FILE")" -gt 0 ] || warn "no stack in $STACKS_DIR has a .deploy/token"
+}
+
+case ${1:-serve} in
+  serve)
+    write_hooks
+    # -verbose also lets webhook start with zero hooks; `reload` adds them.
+    exec webhook -hooks "$HOOKS_FILE" -port "$PORT" -verbose
+    ;;
+  reload)
+    write_hooks
+    kill -USR1 1
+    echo "deploy-hook: reloaded"
+    ;;
+  *)
+    echo "usage: deploy-hook [serve|reload]" >&2
+    exit 2
+    ;;
+esac
