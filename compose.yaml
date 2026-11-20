@@ -2,6 +2,12 @@
 # into a folder of their own, e.g. <STACKS_DIR>/deploy-hook (without a
 # .deploy/token there: the hook must not redeploy itself), then:
 #   docker compose up -d
+networks:
+  # The network your reverse proxy shares with the containers it serves.
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}
+
 services:
   deploy-hook:
     image: ghcr.io/saminitz/deploy-hook:latest
@@ -21,9 +27,3 @@ services:
       - ${DOCKER_CONFIG_DIR:-./docker}:/root/.docker:ro
     expose: ['9000']
     networks: [proxy]
-
-networks:
-  # The network your reverse proxy shares with the containers it serves.
-  proxy:
-    external: true
-    name: ${PROXY_NETWORK:-proxy}
