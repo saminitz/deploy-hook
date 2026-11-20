@@ -1,6 +1,6 @@
 #!/bin/sh
 # Integration test: builds the image, runs it against throwaway stacks in a
-# temp folder and checks every response. Needs docker, curl and jq.
+# temp folder and checks every response. Needs docker and curl.
 #   test/run.sh
 set -eu
 

@@ -25,12 +25,16 @@ when a service doesn't get healthy.
    fill in `.env`.
 2. `docker compose up -d`
 3. Point your reverse proxy at `deploy-hook:9000` over HTTPS. Set its response
-   timeout to at least 15 minutes, since a deploy waits for every health check.
+   timeout to at least 15 minutes, since the response waits for the whole
+   deploy: `pre-deploy.sh` and `pull` have no time limit of their own, and
+   `up --wait` may take up to `DEPLOY_WAIT_TIMEOUT`.
 
 ## Add a stack
 
-A stack is any folder in `STACKS_DIR` with a `compose.yaml` (or
-`docker-compose.yaml`). It gets a hook as soon as it has a token:
+A stack is a folder directly in `STACKS_DIR` that Docker Compose can run
+(`compose.yaml`, `compose.yml`, `docker-compose.yaml` or `docker-compose.yml`).
+It gets a hook as soon as it has a `.deploy/token` (the hook doesn't check for
+the Compose file; a stack without one fails at deploy time):
 
 ```sh
 cd <STACKS_DIR>/my-app
@@ -42,14 +46,17 @@ docker exec deploy-hook deploy-hook reload
 The URL is `/hooks/<id>`. The id is the folder name in lowercase with dashes
 (`My App` → `my-app`), or the content of `.deploy/id`.
 
-Optional files in `.deploy/`:
+Files in `.deploy/`:
 
-| File | Purpose |
-|---|---|
-| `token` | Required. 32+ characters of `A-Z a-z 0-9 _ -`. |
-| `id` | Overrides the id taken from the folder name. |
-| `pre-deploy.sh` | Runs before `pull`, e.g. a backup. Non-zero exit stops the deploy. |
-| `post-deploy.sh` | Runs after all services are healthy. |
+| File | | Purpose |
+|---|---|---|
+| `token` | required | 32+ characters of `A-Z a-z 0-9 _ -`. |
+| `id` | optional | Overrides the id taken from the folder name. Lowercase letters, digits and dashes, starting with a letter or digit. |
+| `pre-deploy.sh` | optional | Runs before `pull`, e.g. a backup. Non-zero exit stops the deploy. |
+| `post-deploy.sh` | optional | Runs after all services are healthy. |
+
+A stack with an invalid token or id, or an id another stack already uses, gets
+no hook. The reason is in `docker logs deploy-hook`.
 
 Scripts run with `sh` in the stack folder, with the Docker CLI available and
 `STACK_DIR` and `DEPLOY_ID` set. For example:
@@ -113,11 +120,18 @@ in constant time and never logged. The hook's own folder must not have a
 ## Development
 
 ```sh
-test/run.sh   # builds the image and deploys throwaway stacks (needs Docker)
+test/run.sh   # builds the image and deploys throwaway stacks (needs Docker and curl)
 ```
 
-Pushes to `main` publish `ghcr.io/saminitz/deploy-hook:latest`. Tags `v1.2.3`
-publish `1.2.3`, `1.2` and `1`.
+Pushes to `main` publish `ghcr.io/saminitz/deploy-hook:latest` and
+`sha-<short>`. Tags `v1.2.3` publish `1.2.3`, `1.2` and `1`.
+
+The action's `@v1` is a Git tag, separate from the image tags. CI ignores it,
+so move it by hand after each release:
+
+```sh
+git tag -f v1 v1.2.3 && git push -f origin v1
+```
 
 ## License
 
