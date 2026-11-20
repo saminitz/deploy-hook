@@ -5,11 +5,14 @@ CI asks it to. No database, no UI, no Git checkout on the server: just
 [webhook](https://github.com/adnanh/webhook), the Docker CLI and two shell
 scripts.
 
-```
-GitHub Actions ──POST /hooks/my-app──▶ deploy-hook ──▶ <STACKS_DIR>/my-app
-  X-Deploy-Token                         pre-deploy.sh → pull → up --wait
-                                         → post-deploy.sh → prune
-◀── 200 + log when healthy, 500 + log when a step fails ──┘
+```mermaid
+sequenceDiagram
+    participant CI as GitHub Actions
+    participant Hook as deploy-hook
+    participant Stack as #lt;STACKS_DIR#gt;/my-app
+    CI->>Hook: POST /hooks/my-app<br/>X-Deploy-Token
+    Hook->>Stack: pre-deploy.sh → pull → up --wait<br/>→ post-deploy.sh → prune
+    Hook-->>CI: 200 + log when healthy<br/>500 + log when a step fails
 ```
 
 The response waits for the deploy, so the CI step shows the log and turns red
