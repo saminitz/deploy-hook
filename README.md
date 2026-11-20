@@ -115,3 +115,7 @@ test/run.sh   # builds the image and deploys throwaway stacks (needs Docker)
 
 Pushes to `main` publish `ghcr.io/saminitz/deploy-hook:latest`. Tags `v1.2.3`
 publish `1.2.3`, `1.2` and `1`.
+
+## License
+
+[AGPL-3.0](LICENSE)
