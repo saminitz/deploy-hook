@@ -1,0 +1,28 @@
+# deploy-hook on the Docker host. Copy this file and .env.example (as .env)
+# into a folder of their own, e.g. <STACKS_DIR>/deploy-hook (without a
+# .deploy/token there: the hook must not redeploy itself), then:
+#   docker compose up -d
+services:
+  deploy-hook:
+    image: ghcr.io/saminitz/deploy-hook:latest
+    container_name: deploy-hook
+    restart: unless-stopped
+    environment:
+      STACKS_DIR: ${STACKS_DIR:?}
+      DEPLOY_WAIT_TIMEOUT: ${DEPLOY_WAIT_TIMEOUT:-600}
+    volumes:
+      # Root on the host: whoever has a token can redeploy that stack.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Same path as on the host: compose hands bind mounts and secrets to
+      # the daemon as host paths.
+      - ${STACKS_DIR}:${STACKS_DIR}
+      # The host's `docker login`, for private images.
+      - ${DOCKER_CONFIG_DIR:-./docker}:/root/.docker:ro
+    expose: ['9000']
+    networks: [proxy]
+
+networks:
+  # The network your reverse proxy shares with the containers it serves.
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}
