@@ -1,0 +1,41 @@
+name: Deploy compose stack
+description: Calls a deploy-hook and fails the step when the deploy fails.
+inputs:
+  url:
+    description: Hook URL, e.g. https://deploy.example.com/hooks/my-app
+    required: true
+  token:
+    description: The stack's .deploy/token (keep it in a secret)
+    required: true
+  timeout:
+    description: Seconds to wait for the deploy to finish
+    default: '900'
+runs:
+  using: composite
+  steps:
+    - name: Call the deploy hook
+      shell: bash
+      env:
+        URL: ${{ inputs.url }}
+        TOKEN: ${{ inputs.token }}
+        TIMEOUT: ${{ inputs.timeout }}
+      run: |
+        if [ -z "$URL" ] || [ -z "$TOKEN" ]; then
+          echo "::error::url and token are required"
+          exit 1
+        fi
+        # The hook answers when the deploy is done; its output is the log.
+        cd "$RUNNER_TEMP"
+        set +e
+        curl -sS --fail-with-body --max-time "$TIMEOUT" -X POST \
+          -H "X-Deploy-Token: $TOKEN" -o out.txt -w '%{http_code}' "$URL" > code.txt
+        result=$?
+        set -e
+        cat out.txt
+        {
+          echo "### Deploy: HTTP $(cat code.txt)"
+          echo '```'
+          tail -n 20 out.txt
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        exit "$result"
